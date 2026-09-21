@@ -1,253 +1,178 @@
--- ==================== MARIBO AUTHENTICATION ====================
-local AUTH_URL = "http://78.154.103.42:10263/auth"  -- ← CHANGE THIS
+-- ==================== MARIBO KEY SYSTEM ====================
+local AUTH_URL = "http://78.154.103.42:10263/auth"
 local KEY_FILE = "Modena Client/key.txt"
 
 local HttpService = game:GetService("HttpService")
 local CoreGui = game:GetService("CoreGui")
 local TweenService = game:GetService("TweenService")
 
--- Get HWID
 local function getHWID()
-    local success, result = pcall(function()
+    local ok, result = pcall(function()
         return game:GetService("RbxAnalyticsService"):GetClientId()
     end)
-    return (success and result) or "unknown-hwid"
+    return ok and result or "unknown"
 end
 
--- Save / Load key
 local function saveKey(key)
-    if writefile then
-        pcall(writefile, KEY_FILE, key)
-    end
+    if writefile then pcall(writefile, KEY_FILE, key) end
 end
 
 local function loadKey()
     if isfile and isfile(KEY_FILE) then
-        local success, content = pcall(readfile, KEY_FILE)
-        if success then
-            return content:gsub("%s+", "")
-        end
+        local ok, content = pcall(readfile, KEY_FILE)
+        if ok then return content:gsub("%s+", "") end
     end
     return nil
 end
 
--- Authenticate with Discord bot
 local function authenticate(key)
-    local hwid = getHWID()
-    local body = HttpService:JSONEncode({
-        key = key,
-        hwid = hwid
-    })
+    local body = HttpService:JSONEncode({key = key, hwid = getHWID()})
+    local req = (syn and syn.request) or request or http_request or (http and http.request)
+    if not req then return false, "No HTTP support" end
 
-    local requestFunc = (syn and syn.request) or request or http_request or http.request
-    if not requestFunc then
-        return false, "Your executor does not support HTTP requests"
-    end
-
-    local success, response = pcall(function()
-        return requestFunc({
+    local ok, res = pcall(function()
+        return req({
             Url = AUTH_URL,
             Method = "POST",
-            Headers = {
-                ["Content-Type"] = "application/json"
-            },
+            Headers = {["Content-Type"] = "application/json"},
             Body = body
         })
     end)
 
-    if not success then
-        return false, "Failed to contact authentication server"
-    end
-
-    if response.StatusCode ~= 200 then
-        return false, "Server error (" .. tostring(response.StatusCode) .. ")"
-    end
+    if not ok or not res then return false, "Could not reach server" end
+    if res.StatusCode ~= 200 then return false, "Server error " .. tostring(res.StatusCode) end
 
     local data
-    local ok = pcall(function()
-        data = HttpService:JSONDecode(response.Body)
-    end)
-
-    if not ok or type(data) ~= "table" then
-        return false, "Invalid response from server"
-    end
-
-    return data.success == true, data.message or "Unknown error"
+    local success = pcall(function() data = HttpService:JSONDecode(res.Body) end)
+    if not success or type(data) ~= "table" then return false, "Bad response" end
+    return data.success == true, data.message or "Failed"
 end
 
--- Authentication GUI
-local function showAuthGUI()
-    local old = CoreGui:FindFirstChild("MariboAuth")
+local function showKeyUI()
+    local old = CoreGui:FindFirstChild("MariboKeyUI")
     if old then old:Destroy() end
 
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "MariboAuth"
-    screenGui.ResetOnSpawn = false
-    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    screenGui.Parent = CoreGui
+    local sg = Instance.new("ScreenGui")
+    sg.Name = "MariboKeyUI"
+    sg.ResetOnSpawn = false
+    sg.Parent = CoreGui
 
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 420, 0, 240)
-    frame.Position = UDim2.new(0.5, -210, 0.5, -120)
-    frame.BackgroundColor3 = Color3.fromRGB(14, 15, 18)
-    frame.BorderSizePixel = 0
-    frame.Parent = screenGui
-
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 10)
-    corner.Parent = frame
-
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = Color3.fromRGB(60, 140, 255)
-    stroke.Thickness = 1.5
-    stroke.Transparency = 0.4
-    stroke.Parent = frame
+    local f = Instance.new("Frame")
+    f.Size = UDim2.new(0, 400, 0, 210)
+    f.Position = UDim2.new(0.5, -200, 0.5, -105)
+    f.BackgroundColor3 = Color3.fromRGB(16, 17, 22)
+    f.BorderSizePixel = 0
+    f.Parent = sg
+    Instance.new("UICorner", f).CornerRadius = UDim.new(0, 8)
 
     local title = Instance.new("TextLabel")
-    title.Size = UDim2.new(1, 0, 0, 45)
+    title.Size = UDim2.new(1, 0, 0, 40)
     title.BackgroundTransparency = 1
-    title.Text = "Maribo Authentication"
-    title.TextColor3 = Color3.fromRGB(100, 180, 255)
+    title.Text = "Maribo Key"
+    title.TextColor3 = Color3.fromRGB(90, 170, 255)
     title.Font = Enum.Font.GothamBold
-    title.TextSize = 20
-    title.Parent = frame
+    title.TextSize = 18
+    title.Parent = f
 
-    local subtitle = Instance.new("TextLabel")
-    subtitle.Size = UDim2.new(1, -40, 0, 25)
-    subtitle.Position = UDim2.new(0, 20, 0, 42)
-    subtitle.BackgroundTransparency = 1
-    subtitle.Text = "Enter your Maribo key to continue"
-    subtitle.TextColor3 = Color3.fromRGB(160, 170, 185)
-    subtitle.Font = Enum.Font.Gotham
-    subtitle.TextSize = 14
-    subtitle.Parent = frame
-
-    local keyBox = Instance.new("TextBox")
-    keyBox.Size = UDim2.new(1, -40, 0, 40)
-    keyBox.Position = UDim2.new(0, 20, 0, 80)
-    keyBox.BackgroundColor3 = Color3.fromRGB(22, 24, 30)
-    keyBox.TextColor3 = Color3.fromRGB(220, 230, 255)
-    keyBox.PlaceholderText = "MARIBO-XXXX-XXXX-XXXX-XXXX"
-    keyBox.PlaceholderColor3 = Color3.fromRGB(100, 110, 130)
-    keyBox.Font = Enum.Font.Code
-    keyBox.TextSize = 15
-    keyBox.ClearTextOnFocus = false
-    keyBox.Text = ""
-    keyBox.Parent = frame
-
-    local boxCorner = Instance.new("UICorner")
-    boxCorner.CornerRadius = UDim.new(0, 6)
-    boxCorner.Parent = keyBox
+    local box = Instance.new("TextBox")
+    box.Size = UDim2.new(1, -30, 0, 36)
+    box.Position = UDim2.new(0, 15, 0, 55)
+    box.BackgroundColor3 = Color3.fromRGB(25, 27, 35)
+    box.TextColor3 = Color3.new(1, 1, 1)
+    box.PlaceholderText = "MARIBO-XXXX-XXXX-XXXX-XXXX"
+    box.Font = Enum.Font.Code
+    box.TextSize = 14
+    box.ClearTextOnFocus = false
+    box.Text = ""
+    box.Parent = f
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 6)
 
     local status = Instance.new("TextLabel")
-    status.Size = UDim2.new(1, -40, 0, 25)
-    status.Position = UDim2.new(0, 20, 0, 130)
+    status.Size = UDim2.new(1, -30, 0, 24)
+    status.Position = UDim2.new(0, 15, 0, 100)
     status.BackgroundTransparency = 1
     status.Text = ""
-    status.TextColor3 = Color3.fromRGB(255, 100, 100)
+    status.TextColor3 = Color3.fromRGB(255, 90, 90)
     status.Font = Enum.Font.Gotham
     status.TextSize = 13
-    status.Parent = frame
+    status.Parent = f
 
-    local submit = Instance.new("TextButton")
-    submit.Size = UDim2.new(1, -40, 0, 42)
-    submit.Position = UDim2.new(0, 20, 0, 165)
-    submit.BackgroundColor3 = Color3.fromRGB(40, 120, 255)
-    submit.Text = "Authenticate"
-    submit.TextColor3 = Color3.fromRGB(255, 255, 255)
-    submit.Font = Enum.Font.GothamBold
-    submit.TextSize = 16
-    submit.AutoButtonColor = false
-    submit.Parent = frame
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1, -30, 0, 38)
+    btn.Position = UDim2.new(0, 15, 0, 140)
+    btn.BackgroundColor3 = Color3.fromRGB(40, 120, 255)
+    btn.Text = "Unlock"
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 15
+    btn.Parent = f
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
 
-    local submitCorner = Instance.new("UICorner")
-    submitCorner.CornerRadius = UDim.new(0, 6)
-    submitCorner.Parent = submit
+    local finished = false
+    local ok = false
 
-    -- Hover effect
-    submit.MouseEnter:Connect(function()
-        TweenService:Create(submit, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(60, 140, 255)}):Play()
-    end)
-    submit.MouseLeave:Connect(function()
-        TweenService:Create(submit, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(40, 120, 255)}):Play()
-    end)
-
-    local authFinished = false
-    local authSuccess = false
-
-    local function tryAuth()
-        local key = keyBox.Text:gsub("%s+", ""):upper()
-        if #key < 10 then
-            status.Text = "Please enter a valid key"
-            status.TextColor3 = Color3.fromRGB(255, 100, 100)
+    local function try()
+        local key = box.Text:gsub("%s+", ""):upper()
+        if #key < 12 then
+            status.Text = "Enter a valid key"
             return
         end
-
-        status.Text = "Authenticating..."
+        status.Text = "Checking..."
         status.TextColor3 = Color3.fromRGB(180, 200, 255)
-        submit.Text = "Please wait..."
-        submit.Active = false
+        btn.Text = "..."
+        btn.Active = false
 
         task.spawn(function()
-            local success, message = authenticate(key)
-
+            local success, msg = authenticate(key)
             if success then
                 saveKey(key)
-                status.Text = "Authenticated successfully!"
+                status.Text = "Success"
                 status.TextColor3 = Color3.fromRGB(80, 220, 120)
-                submit.Text = "Success"
-                authSuccess = true
-                task.wait(0.8)
-                screenGui:Destroy()
-                authFinished = true
+                ok = true
+                task.wait(0.6)
+                sg:Destroy()
+                finished = true
             else
-                status.Text = message or "Authentication failed"
-                status.TextColor3 = Color3.fromRGB(255, 100, 100)
-                submit.Text = "Authenticate"
-                submit.Active = true
+                status.Text = msg or "Invalid key"
+                status.TextColor3 = Color3.fromRGB(255, 90, 90)
+                btn.Text = "Unlock"
+                btn.Active = true
             end
         end)
     end
 
-    submit.MouseButton1Click:Connect(tryAuth)
-    keyBox.FocusLost:Connect(function(enter)
-        if enter then tryAuth() end
-    end)
+    btn.MouseButton1Click:Connect(try)
+    box.FocusLost:Connect(function(enter) if enter then try() end end)
 
-    -- Wait until authentication is finished
-    while not authFinished do
-        task.wait()
-    end
-
-    return authSuccess
+    while not finished do task.wait() end
+    return ok
 end
 
--- ==================== START AUTH ====================
-local savedKey = loadKey()
-local authenticated = false
+-- Run key check
+local key = loadKey()
+local passed = false
 
-if savedKey and #savedKey > 10 then
-    local success, message = authenticate(savedKey)
+if key and #key > 12 then
+    local success = authenticate(key)
     if success then
-        authenticated = true
-        print("[Maribo] Authenticated with saved key")
-    else
-        print("[Maribo] Saved key failed:", message)
-        -- Show GUI if saved key is invalid
-        authenticated = showAuthGUI()
+        passed = true
+        print("[Maribo] Key accepted")
     end
-else
-    authenticated = showAuthGUI()
 end
 
-if not authenticated then
-    -- Kill the script if authentication failed
-    error("[Maribo] Authentication failed. Script stopped.")
+if not passed then
+    passed = showKeyUI()
 end
 
-print("[Maribo] Authentication successful. Loading Modena Client...")
--- ==================== END AUTH ====================
--- Your original Modena Client script continues below this line-- Modena Client | Complete script for place 12068280773.
+if not passed then
+    error("[Maribo] Key required")
+end
+
+print("[Maribo] Loading client...")
+
+-- ==================== ORIGINAL SCRIPT ====================
+do
+-- Modena Client | Complete script for place 12068280773.
 -- Tracers show sampled client paths, not confirmed server impacts.
 -- Create the asset folder relative to Potassium's executor workspace.
 -- Existing files are preserved. The script itself stays outside this folder.
@@ -3237,3 +3162,5 @@ gui.Destroying:Connect(function()
     for r in pairs(records) do r.a:Destroy(); r.b:Destroy() end
 end)
 print("MODENA_READY","simulation",originalSim~=nil,"artillery",X.cannonReady,"horse",X.horseReady,"chants",gui:GetAttribute("ChantCount"),"teammate exclusion",C.TeamCheck,"instant hit",C.InstantHit)
+
+end -- end of Modena Client scope
